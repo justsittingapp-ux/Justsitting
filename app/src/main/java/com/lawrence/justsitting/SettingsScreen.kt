@@ -1,18 +1,27 @@
 package com.lawrence.justsitting
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,82 +45,122 @@ fun SettingsScreen(onSaveSuccess: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 12.dp) // Redus de la 24 la 12
+            .background(Color(0xFF0A0A0A))
+            .padding(horizontal = 20.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(modifier = Modifier.height(24.dp))
+        
         Text(
             "Settings",
             color = Color.White,
-            fontSize = 24.sp, // Redus de la 28 la 24
+            fontSize = 32.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp) // Redus de la 24 la 12
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)
         )
 
-        // --- MEDITATION TIME ---
-        Text("MEDITATION TIME", color = Color(0xFF00BCD4), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
-        Spacer(modifier = Modifier.height(4.dp)) // Redus de la 12 la 4
-        Box(contentAlignment = Alignment.Center) {
-            Column(modifier = Modifier.width(140.dp).height(40.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                HorizontalDivider(thickness = 1.dp, color = Color(0xFF00BCD4).copy(alpha = 0.2f))
-                HorizontalDivider(thickness = 1.dp, color = Color(0xFF00BCD4).copy(alpha = 0.2f))
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                WheelNumberPicker(0..9, tempH, "h", isSmall = true) { tempH = it }
-                Spacer(modifier = Modifier.width(10.dp))
-                WheelNumberPicker(0..59, tempM, "m", isSmall = true) { tempM = it }
+        // --- SECTION: TIME & PREPARATION ---
+        SettingsSectionTitle("TIME & PREPARATION")
+        SettingsCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Meditation Duration
+                SettingItemHeader(Icons.Default.Timer, "Meditation Duration", "Set your session length")
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // NOU SELECTOR: ORE
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Hours", color = Color.Gray, fontSize = 14.sp)
+                    TimeStepper(value = tempH, range = 0..9, label = "h") { tempH = it }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // NOU SELECTOR: MINUTE
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Minutes", color = Color.Gray, fontSize = 14.sp)
+                    TimeStepper(value = tempM, range = 0..59, label = "m") { tempM = it }
+                }
+                
+                HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp), color = Color.White.copy(alpha = 0.05f))
+                
+                // Warm-up Delay
+                SettingItemHeader(Icons.Default.HourglassEmpty, "Warm-up Delay", "Preparation time (seconds)")
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TimeStepper(value = tempWarmup, range = 0..60, label = "sec") { tempWarmup = it }
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp)) // Redus de la 24 la 16
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // --- WARM-UP DELAY ---
-        Text("WARM-UP DELAY", color = Color(0xFFFFC107), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
-        Spacer(modifier = Modifier.height(4.dp))
-        Box(contentAlignment = Alignment.Center) {
-            Column(modifier = Modifier.width(70.dp).height(40.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                HorizontalDivider(thickness = 1.dp, color = Color(0xFFFFC107).copy(alpha = 0.2f))
-                HorizontalDivider(thickness = 1.dp, color = Color(0xFFFFC107).copy(alpha = 0.2f))
-            }
-            WheelNumberPicker(0..60, tempWarmup, "sec", isSmall = true) { tempWarmup = it }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // --- OPTIONS PANEL ---
-        Surface(color = Color(0xFF161616), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(4.dp)) { // Padding intern redus
-                OptionRow("Enable Do Not Disturb", useDND) { useDND = it }
-                OptionRow("Keep screen always on", keepScreenOn) { keepScreenOn = it }
-                OptionRow("Enable Interval Bell", useIntervalBell) { useIntervalBell = it }
-
-                if (useIntervalBell) {
+        // --- SECTION: FOCUS & ALERTS ---
+        SettingsSectionTitle("FOCUS & ALERTS")
+        SettingsCard {
+            Column {
+                SettingsToggleRow(
+                    icon = Icons.Default.NotificationsOff,
+                    title = "Do Not Disturb",
+                    description = "Silence alerts during session",
+                    checked = useDND,
+                    onCheckedChange = { useDND = it }
+                )
+                
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color.White.copy(alpha = 0.05f))
+                
+                SettingsToggleRow(
+                    icon = Icons.Default.NotificationsActive,
+                    title = "Interval Bell",
+                    description = "Chime during your meditation",
+                    checked = useIntervalBell,
+                    onCheckedChange = { useIntervalBell = it }
+                )
+                
+                AnimatedVisibility(
+                    visible = useIntervalBell,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 40.dp, end = 8.dp, bottom = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White.copy(alpha = 0.02f))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Repeat every:", color = Color.Gray, fontSize = 12.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { if (intervalMin > 1) intervalMin-- }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Default.KeyboardArrowLeft, null, tint = Color(0xFF00BCD4))
-                            }
-                            Text(text = "$intervalMin min", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            IconButton(onClick = { if (intervalMin < 60) intervalMin++ }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Default.KeyboardArrowRight, null, tint = Color(0xFF00BCD4))
-                            }
-                        }
+                        Text("Repeat every:", color = Color.Gray, fontSize = 13.sp)
+                        TimeStepper(value = intervalMin, range = 1..60, label = "min") { intervalMin = it }
                     }
                 }
             }
         }
 
-        // --- CALCULEAZĂ DACĂ TIMPUL ESTE VALID ---
-        val isTimeValid = (tempH > 0 || tempM > 0)
+        Spacer(modifier = Modifier.height(24.dp))
 
-        Spacer(modifier = Modifier.height(30.dp))
+        // --- SECTION: DISPLAY ---
+        SettingsSectionTitle("DISPLAY")
+        SettingsCard {
+            SettingsToggleRow(
+                icon = Icons.Default.LightMode,
+                title = "Keep Screen On",
+                description = "Prevent screen from dimming",
+                checked = keepScreenOn,
+                onCheckedChange = { keepScreenOn = it }
+            )
+        }
 
-        // Butonul de Salvare
+        Spacer(modifier = Modifier.height(40.dp))
+
         Button(
             onClick = {
                 prefs.edit()
@@ -124,24 +173,101 @@ fun SettingsScreen(onSaveSuccess: () -> Unit) {
                     .apply()
                 onSaveSuccess()
             },
-            // Aici blocăm interacțiunea dacă timpul e 0
             enabled = isTimeValid,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
+            modifier = Modifier.fillMaxWidth().height(60.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF00BCD4), // Culoarea activă (Turcoaz)
+                containerColor = Color(0xFF00BCD4),
                 contentColor = Color.Black,
-                disabledContainerColor = Color.White.copy(alpha = 0.12f), // Culoarea gri când e blocat
+                disabledContainerColor = Color.White.copy(alpha = 0.1f),
                 disabledContentColor = Color.Gray
             ),
             shape = RoundedCornerShape(16.dp)
         ) {
             Text(
-                text = if (isTimeValid) "SAVE SETTINGS" else "PICK A DURATION",
+                text = if (isTimeValid) "SAVE SETTINGS" else "SELECT DURATION",
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
+                letterSpacing = 1.2.sp
             )
         }
+        
+        Spacer(modifier = Modifier.height(40.dp))
+    }
+}
+
+@Composable
+fun SettingsSectionTitle(title: String) {
+    Text(
+        text = title,
+        color = Color.Gray,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp)
+    )
+}
+
+@Composable
+fun SettingsCard(content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.Transparent,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
+    ) {
+        Box(modifier = Modifier.background(
+            brush = Brush.verticalGradient(colors = listOf(Color(0xFF1A1A1A), Color(0xFF121212)))
+        )) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun SettingItemHeader(icon: ImageVector, title: String, description: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = Color(0xFF00BCD4).copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(description, color = Color.Gray, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+fun SettingsToggleRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = Color.Gray.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(description, color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = { onCheckedChange(it) },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Color(0xFF00BCD4),
+                uncheckedThumbColor = Color.Gray,
+                uncheckedTrackColor = Color(0xFF2A2A2A),
+                uncheckedBorderColor = Color.Transparent
+            )
+        )
     }
 }
