@@ -120,6 +120,13 @@ fun TimerEngine(state: MeditationState) {
                     if (!nm.isNotificationPolicyAccessGranted) {
                         state.isRunning = false
                         android.widget.Toast.makeText(state.context, "Enable DND access", android.widget.Toast.LENGTH_LONG).show()
+                        try {
+                            val intent = Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            state.context.startActivity(intent)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                         return@LaunchedEffect
                     } else {
                         nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
