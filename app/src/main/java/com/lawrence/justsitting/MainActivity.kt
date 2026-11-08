@@ -24,23 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 class MainActivity : ComponentActivity() {
-    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupDefaultPrefs()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("timer_ch", "Meditation Status", NotificationManager.IMPORTANCE_LOW).apply {
-                setSound(null, null)
-                enableVibration(false)
-            }
-            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
-        }
-        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "JustSitting::TimerWakeLock")
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        setContent { MaterialTheme { RequestNotificationPermission(); MainNavigation(wakeLock) } }
+        setContent { MaterialTheme { MainNavigation() } }
     }
 
     private fun setupDefaultPrefs() {
@@ -65,7 +54,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainNavigation(wakeLock: PowerManager.WakeLock?) {
+fun MainNavigation(wakeLock: PowerManager.WakeLock? = null) {
     var currentScreen by remember { mutableIntStateOf(0) }
     
     // Inițializăm starea globală a meditației
@@ -94,8 +83,10 @@ fun MainNavigation(wakeLock: PowerManager.WakeLock?) {
                     },
                     label = { Text("Timer", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF00BCD4),
+                        selectedIconColor = Color(0xFFFF9800),
+                        selectedTextColor = Color(0xFFFF9800),
                         unselectedIconColor = Color.Gray.copy(alpha = 0.6f),
+                        unselectedTextColor = Color.Gray.copy(alpha = 0.6f),
                         indicatorColor = Color.Transparent
                     )
                 )
@@ -112,8 +103,10 @@ fun MainNavigation(wakeLock: PowerManager.WakeLock?) {
                     },
                     label = { Text("Wisdom", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF00BCD4),
+                        selectedIconColor = Color(0xFFFF9800),
+                        selectedTextColor = Color(0xFFFF9800),
                         unselectedIconColor = Color.Gray.copy(alpha = 0.6f),
+                        unselectedTextColor = Color.Gray.copy(alpha = 0.6f),
                         indicatorColor = Color.Transparent
                     )
                 )
@@ -130,8 +123,10 @@ fun MainNavigation(wakeLock: PowerManager.WakeLock?) {
                     },
                     label = { Text("Journey", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF00BCD4),
+                        selectedIconColor = Color(0xFFFF9800),
+                        selectedTextColor = Color(0xFFFF9800),
                         unselectedIconColor = Color.Gray.copy(alpha = 0.6f),
+                        unselectedTextColor = Color.Gray.copy(alpha = 0.6f),
                         indicatorColor = Color.Transparent
                     )
                 )
@@ -148,8 +143,10 @@ fun MainNavigation(wakeLock: PowerManager.WakeLock?) {
                     },
                     label = { Text("About", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF00BCD4),
+                        selectedIconColor = Color(0xFFFF9800),
+                        selectedTextColor = Color(0xFFFF9800),
                         unselectedIconColor = Color.Gray.copy(alpha = 0.6f),
+                        unselectedTextColor = Color.Gray.copy(alpha = 0.6f),
                         indicatorColor = Color.Transparent
                     )
                 )
@@ -166,8 +163,10 @@ fun MainNavigation(wakeLock: PowerManager.WakeLock?) {
                     },
                     label = { Text("Settings", fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF00BCD4),
+                        selectedIconColor = Color(0xFFFF9800),
+                        selectedTextColor = Color(0xFFFF9800),
                         unselectedIconColor = Color.Gray.copy(alpha = 0.6f),
+                        unselectedTextColor = Color.Gray.copy(alpha = 0.6f),
                         indicatorColor = Color.Transparent
                     )
                 )

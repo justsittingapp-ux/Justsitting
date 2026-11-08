@@ -63,13 +63,13 @@ fun MeditationTimerScreen(state: MeditationState, onOpenSettings: () -> Unit) {
             Surface(
                 modifier = Modifier.size(260.dp * activePulsation),
                 shape = CircleShape,
-                color = (if(state.isWarmupActive) Color(0xFFFFC107) else Color(0xFF00BCD4)).copy(alpha = 0.1f * activePulsation)
+                color = (if(state.isWarmupActive) Color(0xFF00BCD4) else Color(0xFFFF9800)).copy(alpha = 0.1f * activePulsation)
             ) {}
 
             Canvas(modifier = Modifier.size(280.dp)) {
                 drawCircle(color = Color.White.copy(alpha = 0.1f), style = Stroke(width = 8.dp.toPx()))
-                val c1 = if(state.isWarmupActive) Color(0xFFFFC107) else Color(0xFF00BCD4)
-                val c2 = if(state.isWarmupActive) Color(0xFFFF9800) else Color(0xFF3F51B5)
+                val c1 = if(state.isWarmupActive) Color(0xFF00BCD4) else Color(0xFFFF9800)
+                val c2 = if(state.isWarmupActive) Color(0xFF3F51B5) else Color(0xFFFF5722)
                 if (state.isRunning && !state.isPaused) {
                     drawArc(
                         brush = Brush.sweepGradient(0f to c2, 0.5f to c1, 1f to c2),
@@ -87,7 +87,7 @@ fun MeditationTimerScreen(state: MeditationState, onOpenSettings: () -> Unit) {
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (state.isWarmupActive) {
-                    Text("WARMUP", color = Color(0xFFFFC107), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text("WARMUP", color = Color(0xFF00BCD4), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
                     Text("00:${state.currentWarmupSeconds.toString().padStart(2, '0')}", fontSize = 64.sp, color = Color.White, fontWeight = FontWeight.ExtraLight)
                 } else {
                     Text(
@@ -98,7 +98,7 @@ fun MeditationTimerScreen(state: MeditationState, onOpenSettings: () -> Unit) {
                     if (state.isRunning) {
                         Text(
                             text = if(state.isPaused) "PAUSED" else "STILLNESS",
-                            color = (if(state.isPaused) Color.Gray else Color(0xFF00BCD4)),
+                            color = (if(state.isPaused) Color.Gray else Color(0xFFFF9800)),
                             fontSize = 12.sp, letterSpacing = 6.sp, modifier = Modifier.offset(y = (-4).dp)
                         )
                     }
@@ -120,7 +120,7 @@ fun MeditationTimerScreen(state: MeditationState, onOpenSettings: () -> Unit) {
                     } else if (state.isRunning) {
                         state.isPaused = !state.isPaused
                     } else {
-                        if (state.warmupSecondsSet > 0) state.isWarmupActive = true else state.playBell(scope, 1)
+                        if (state.warmupSecondsSet > 0) state.isWarmupActive = true
                         state.isRunning = true
                         state.isPaused = false
                     }
@@ -128,10 +128,10 @@ fun MeditationTimerScreen(state: MeditationState, onOpenSettings: () -> Unit) {
                 modifier = Modifier.weight(1f).height(60.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = when {
-                        state.isFinished -> Color(0xFF00BCD4)
+                        state.isFinished -> Color(0xFFFF9800)
                         state.isPaused -> Color(0xFF4CAF50)
                         state.isRunning -> Color(0xFFFF9800)
-                        else -> Color(0xFF00BCD4)
+                        else -> Color(0xFFFF9800)
                     }
                 ),
                 shape = CircleShape

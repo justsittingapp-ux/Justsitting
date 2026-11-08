@@ -14,6 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(onSaveSuccess: () -> Unit) {
@@ -39,6 +42,9 @@ fun SettingsScreen(onSaveSuccess: () -> Unit) {
     var keepScreenOn by remember { mutableStateOf(prefs.getBoolean("keep_screen_on", false)) }
     var useIntervalBell by remember { mutableStateOf(prefs.getBoolean("interval_bell", false)) }
     var intervalMin by remember { mutableIntStateOf(prefs.getInt("interval_minutes", 15)) }
+    var bellVolume by remember { mutableIntStateOf(prefs.getInt(MeditationManager.KEY_BELL_VOLUME, 80)) }
+
+    val coroutineScope = rememberCoroutineScope()
 
     val isTimeValid = (tempH * 3600 + tempM * 60) > 0
 
@@ -147,6 +153,91 @@ fun SettingsScreen(onSaveSuccess: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // --- SECTION: SOUND ---
+        SettingsSectionTitle("SOUND")
+        SettingsCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                SettingItemHeader(Icons.AutoMirrored.Filled.VolumeUp, "Gong Volume", "Independent of phone alarm volume")
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeDown,
+                        contentDescription = null,
+                        tint = Color.Gray,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Slider(
+                        value = bellVolume.toFloat(),
+                        onValueChange = { bellVolume = it.toInt() },
+                        valueRange = 10f..100f,
+                        steps = 17,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF00BCD4),
+                            activeTrackColor = Color(0xFF00BCD4),
+                            inactiveTrackColor = Color.White.copy(alpha = 0.1f)
+                        )
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = Color.Gray,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "$bellVolume%",
+                        color = Color(0xFF00BCD4),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    var isTesting by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = {
+                            if (!isTesting) {
+                                isTesting = true
+                                coroutineScope.launch {
+                                    try {
+                                        val previewPrefs = context.getSharedPreferences("meditation_prefs", android.content.Context.MODE_PRIVATE)
+                                        previewPrefs.edit().putInt(MeditationManager.KEY_BELL_VOLUME, bellVolume).apply()
+                                        MeditationManager.playBellAudioSuspending(context, 1)
+                                    } finally {
+                                        isTesting = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !isTesting,
+                        border = BorderStroke(0.5.dp, if (isTesting) Color.Gray.copy(alpha = 0.3f) else Color(0xFF00BCD4).copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color(0xFF00BCD4),
+                            disabledContentColor = Color.Gray
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Test gong",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (isTesting) "Playing..." else "Test", fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // --- SECTION: DISPLAY ---
         SettingsSectionTitle("DISPLAY")
         SettingsCard {
@@ -170,6 +261,7 @@ fun SettingsScreen(onSaveSuccess: () -> Unit) {
                     .putBoolean("interval_bell", useIntervalBell)
                     .putInt("interval_minutes", intervalMin)
                     .putBoolean("use_dnd", useDND)
+                    .putInt(MeditationManager.KEY_BELL_VOLUME, bellVolume)
                     .apply()
                 onSaveSuccess()
             },
