@@ -14,12 +14,21 @@ import android.os.PowerManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
 
 object MeditationManager {
     const val PREFS_NAME = "meditation_prefs"
 
     private val audioMutex = Mutex()
+    @Volatile
+    private var activeAudioJob: Job? = null
+    @Volatile
+    private var activeMediaPlayer: MediaPlayer? = null
+    @Volatile
+    private var activeWakeLock: PowerManager.WakeLock? = null
+    @Volatile
+    private var originalSystemAlarmVolume: Int? = null
 
     const val ACTION_WARMUP_END = "com.lawrence.justsitting.ACTION_WARMUP_END"
     const val ACTION_INTERVAL_BELL = "com.lawrence.justsitting.ACTION_INTERVAL_BELL"
@@ -39,8 +48,12 @@ object MeditationManager {
     const val KEY_SAVED_DND_FILTER = "saved_dnd_filter"
     const val KEY_SESSION_RECORDED = "session_recorded"
     const val KEY_BELL_VOLUME = "bell_volume"
+    const val KEY_SAVED_ALARM_VOLUME = "saved_system_alarm_volume"
 
     fun startSession(context: Context, state: MeditationState? = null) {
+        // Oprim orice sunet activ și garantăm restaurarea volumului
+        stopAudio(context)
+
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val totalTime = prefs.getInt("total_time", 600).let { if (it <= 0) 600 else it }
         val warmupTime = prefs.getInt("warmup_time", 10).let { if (it < 0) 0 else it }
@@ -221,6 +234,7 @@ object MeditationManager {
     }
 
     fun stopSession(context: Context, state: MeditationState? = null) {
+        stopAudio(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         cancelAllAlarms(context)
         restoreDnd(context, prefs)
@@ -243,6 +257,7 @@ object MeditationManager {
     }
 
     fun resetSession(context: Context, state: MeditationState? = null) {
+        stopAudio(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(KEY_SESSION_STATE, "IDLE")
@@ -262,6 +277,7 @@ object MeditationManager {
     }
 
     fun reconcile(context: Context, state: MeditationState) {
+        restoreSavedSystemAlarmVolume(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val sessionState = prefs.getString(KEY_SESSION_STATE, "IDLE") ?: "IDLE"
         val now = System.currentTimeMillis()
@@ -454,16 +470,16 @@ object MeditationManager {
                 .commit()
         }
 
-        // 2. Sună gongul de începere a meditației
-        playBellAudioSuspending(context, 1)
-
-        // 3. Timpul de final (KEY_SESSION_END_TIME) este DEJA calculat corect din startSession (warmupEnd + totalSeconds).
+        // 2. Timpul de final (KEY_SESSION_END_TIME) este DEJA calculat corect din startSession (warmupEnd + totalSeconds).
         // Nu recalculăm sessionEnd = now + totalSeconds pentru a nu da timpul peste cap!
         val sessionEnd = prefs.getLong(KEY_SESSION_END_TIME, 0L)
         val sessionStart = prefs.getLong(KEY_SESSION_START_TIME, prefs.getLong(KEY_WARMUP_END_TIME, System.currentTimeMillis()))
 
-        // 4. Programăm primul gong intermediar dacă este activat
+        // 3. Programăm primul gong intermediar dacă este activat
         scheduleNextIntervalBell(context, prefs, sessionStart, sessionEnd)
+
+        // 4. Sună gongul de începere a meditației în mod asincron (fără a bloca receiver-ul sau UI-ul)
+        playBellAudio(context, 1)
     }
 
     suspend fun handleIntervalBell(context: Context) {
@@ -484,7 +500,7 @@ object MeditationManager {
         // Sunăm gongul intermediar dacă nu a fost deja sunat de UI pe ecran
         if (currentIndex > lastIndex && now < sessionEnd - 5000L) {
             prefs.edit().putInt(KEY_LAST_INTERVAL_INDEX, currentIndex).apply()
-            playBellAudioSuspending(context, 1)
+            playBellAudio(context, 1)
         }
 
         // Programăm următorul interval ancorat întotdeauna de sessionStart (fără drift cumulativ!)
@@ -506,11 +522,11 @@ object MeditationManager {
             prefs.edit().putBoolean(KEY_SESSION_RECORDED, true).commit()
         }
 
-        // 1. Sună cele 3 gonguri finale
-        playBellAudioSuspending(context, 3)
-
-        // 2. Înregistrăm sesiunea în istoric și salvăm restul stării
+        // 1. Înregistrăm sesiunea în istoric și salvăm restul stării (stare FINISHED, alarme anulate, DND restaurat)
         finalizeFinishedSession(context, prefs)
+
+        // 2. Sună cele 3 gonguri finale în fundal (cu wakelock garantat, fără a bloca receiver-ul sau UI-ul)
+        playBellAudio(context, 3)
     }
 
     fun scheduleNextIntervalBell(context: Context, prefs: SharedPreferences, sessionStartTime: Long, sessionEndTime: Long) {
@@ -664,18 +680,80 @@ object MeditationManager {
         }
     }
 
+    fun stopAudio(context: Context) {
+        synchronized(this) {
+            try {
+                activeAudioJob?.cancel()
+                activeAudioJob = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            try {
+                activeMediaPlayer?.let {
+                    if (it.isPlaying) {
+                        it.stop()
+                    }
+                    it.release()
+                }
+                activeMediaPlayer = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            try {
+                activeWakeLock?.let {
+                    if (it.isHeld) {
+                        it.release()
+                    }
+                }
+                activeWakeLock = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            restoreSavedSystemAlarmVolume(context)
+        }
+    }
+
+    fun restoreSavedSystemAlarmVolume(context: Context) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        val volumeToRestore = originalSystemAlarmVolume ?: run {
+            if (prefs.contains(KEY_SAVED_ALARM_VOLUME)) {
+                prefs.getInt(KEY_SAVED_ALARM_VOLUME, -1).takeIf { it >= 0 }
+            } else null
+        }
+
+        if (volumeToRestore != null) {
+            try {
+                val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                val safeVolume = volumeToRestore.coerceIn(0, maxVolume)
+                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, safeVolume, 0)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                originalSystemAlarmVolume = null
+                prefs.edit().remove(KEY_SAVED_ALARM_VOLUME).apply()
+            }
+        }
+    }
+
     fun playBellAudio(context: Context, times: Int = 1) {
-        CoroutineScope(Dispatchers.Default).launch {
+        val job = CoroutineScope(Dispatchers.Default).launch {
             playBellAudioSuspending(context, times)
         }
+        activeAudioJob = job
     }
 
     suspend fun playBellAudioSuspending(context: Context, times: Int = 1) {
         audioMutex.withLock {
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            val wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "JustSitting::BellSuspendingWakeLock").apply {
+            val wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "JustSitting::BellSuspendingWakeLock"
+            ).apply {
                 setReferenceCounted(false)
             }
+            activeWakeLock = wakeLock
             val durationMs = if (times > 1) 50_000L else 15_000L
             try {
                 wakeLock.acquire(durationMs)
@@ -688,24 +766,46 @@ object MeditationManager {
             val bellVolumePercent = prefs.getInt(KEY_BELL_VOLUME, 80).coerceIn(1, 100)
             val desiredFraction = bellVolumePercent / 100f
 
-            // Setăm temporar volumul stream-ului de alarmă la o treaptă adecvată,
-            // garantând că se va auzi chiar dacă telefonul avea alarma dată la minim.
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val maxAlarmVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            val savedAlarmVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
-            val targetAlarmVolume = (maxAlarmVolume * desiredFraction).roundToInt().coerceIn(1, maxAlarmVolume)
+            val currentAlarmVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
+            val currentFraction = currentAlarmVolume.toFloat() / maxAlarmVolume.coerceAtLeast(1)
 
-            try {
-                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetAlarmVolume, 0)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            // Verificăm dacă volumul curent al alarmei telefonului este suficient pentru a reda procentul dorit
+            // fără a modifica volumul din setările de sistem ale telefonului.
+            var changedSystemVolume = false
+            val fineVolume: Float
+
+            if (currentFraction >= desiredFraction && currentAlarmVolume > 0) {
+                // Volumul alarmei telefonului este deja suficient (ex: 100%, iar gongul e setat la 50%).
+                // NU atingem volumul de sistem al telefonului! Calibrăm doar volumul intern MediaPlayer.
+                fineVolume = (desiredFraction / currentFraction).coerceIn(0.01f, 1.0f)
+            } else {
+                // Volumul alarmei telefonului este mai mic decât volumul dorit pentru gong (sau este pe 0/mute).
+                // Doar în acest caz ridicăm temporar stream-ul de alarmă pentru a garanta audibilitatea gongului.
+                val targetAlarmVolume = (maxAlarmVolume * desiredFraction).roundToInt().coerceIn(1, maxAlarmVolume)
+
+                // Salvăm volumul original DOAR dacă nu a fost deja salvat anterior
+                if (originalSystemAlarmVolume == null) {
+                    val savedFromPrefs = if (prefs.contains(KEY_SAVED_ALARM_VOLUME)) {
+                        prefs.getInt(KEY_SAVED_ALARM_VOLUME, currentAlarmVolume)
+                    } else null
+                    val originalToSave = savedFromPrefs ?: currentAlarmVolume
+                    originalSystemAlarmVolume = originalToSave
+                    prefs.edit().putInt(KEY_SAVED_ALARM_VOLUME, originalToSave).apply()
+                }
+
+                try {
+                    audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetAlarmVolume, 0)
+                    changedSystemVolume = true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                val activeStream = audioManager.getStreamVolume(AudioManager.STREAM_ALARM).coerceAtLeast(1)
+                val activeFraction = activeStream.toFloat() / maxAlarmVolume.coerceAtLeast(1)
+                fineVolume = (desiredFraction / activeFraction).coerceIn(0.01f, 1.0f)
             }
-
-            // Calibrare fină: combinăm treapta de stream cu volumul MediaPlayer (0.05f - 1.0f)
-            // astfel încât fiecare procent din slider să aibă o diferență audio reală și lină
-            val currentStream = audioManager.getStreamVolume(AudioManager.STREAM_ALARM).coerceAtLeast(1)
-            val streamFraction = currentStream.toFloat() / maxAlarmVolume.coerceAtLeast(1)
-            val fineVolume = (desiredFraction / streamFraction).coerceIn(0.05f, 1.0f)
 
             try {
                 val audioAttributes = AudioAttributes.Builder()
@@ -714,19 +814,28 @@ object MeditationManager {
                     .build()
 
                 repeat(times) { index ->
-                    // Folosim CompletableDeferred pentru a AȘTEPTA că MediaPlayer
-                    // a terminat efectiv redarea înainte de a continua / restaura volumul.
+                    if (!coroutineContext.isActive) return@repeat
+
                     val completionSignal = CompletableDeferred<Unit>()
+                    var trackDurationMs = 8000L
+
                     try {
                         val mp = MediaPlayer.create(context, R.raw.bell, audioAttributes, 0)
                         if (mp != null) {
+                            activeMediaPlayer = mp
+                            val dur = mp.duration
+                            if (dur > 0) {
+                                trackDurationMs = dur.toLong()
+                            }
                             mp.setVolume(fineVolume, fineVolume)
                             mp.setOnCompletionListener {
                                 it.release()
+                                activeMediaPlayer = null
                                 completionSignal.complete(Unit)
                             }
                             mp.setOnErrorListener { it, _, _ ->
                                 it.release()
+                                activeMediaPlayer = null
                                 completionSignal.complete(Unit)
                                 true
                             }
@@ -739,21 +848,29 @@ object MeditationManager {
                         completionSignal.complete(Unit)
                     }
 
-                    // Așteptăm ca acest gong să termine înainte de a reda următorul
-                    // sau înainte de a restaura volumul (pentru ultimul gong).
-                    completionSignal.await()
+                    // Așteptăm terminarea redării cu TIMEOUT de siguranță, pentru a preveni blocarea (hang)
+                    // pe telefoane (cum ar fi Motorola) unde onCompletionListener poate să nu fie declanșat.
+                    withTimeoutOrNull(trackDurationMs + 1500L) {
+                        completionSignal.await()
+                    }
+
+                    activeMediaPlayer?.let {
+                        try {
+                            if (it.isPlaying) it.stop()
+                            it.release()
+                        } catch (e: Exception) { e.printStackTrace() }
+                        activeMediaPlayer = null
+                    }
 
                     // Pauză între gonguri consecutive (ex. gonguri de final)
-                    if (index < times - 1) {
+                    if (index < times - 1 && coroutineContext.isActive) {
                         delay(5000L)
                     }
                 }
             } finally {
-                // Restaurăm volumul original al alarmei — după ce sunetul s-a terminat complet
-                try {
-                    audioManager.setStreamVolume(AudioManager.STREAM_ALARM, savedAlarmVolume, 0)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                // Restaurăm volumul original al alarmei dacă a fost modificat temporar
+                if (changedSystemVolume) {
+                    restoreSavedSystemAlarmVolume(context)
                 }
                 try {
                     if (wakeLock.isHeld) {
@@ -761,6 +878,9 @@ object MeditationManager {
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
+                }
+                if (activeWakeLock == wakeLock) {
+                    activeWakeLock = null
                 }
             }
         }

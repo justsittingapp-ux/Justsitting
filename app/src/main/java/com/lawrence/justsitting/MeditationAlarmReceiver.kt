@@ -6,6 +6,7 @@ import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 class MeditationAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -15,15 +16,17 @@ class MeditationAlarmReceiver : BroadcastReceiver() {
 
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                when (action) {
-                    MeditationManager.ACTION_WARMUP_END -> {
-                        MeditationManager.handleWarmupEnd(context)
-                    }
-                    MeditationManager.ACTION_INTERVAL_BELL -> {
-                        MeditationManager.handleIntervalBell(context)
-                    }
-                    MeditationManager.ACTION_SESSION_END -> {
-                        MeditationManager.handleSessionEnd(context)
+                withTimeout(5000L) {
+                    when (action) {
+                        MeditationManager.ACTION_WARMUP_END -> {
+                            MeditationManager.handleWarmupEnd(context)
+                        }
+                        MeditationManager.ACTION_INTERVAL_BELL -> {
+                            MeditationManager.handleIntervalBell(context)
+                        }
+                        MeditationManager.ACTION_SESSION_END -> {
+                            MeditationManager.handleSessionEnd(context)
+                        }
                     }
                 }
             } catch (e: Exception) {

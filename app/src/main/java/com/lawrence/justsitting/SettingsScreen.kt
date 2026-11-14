@@ -45,6 +45,11 @@ fun SettingsScreen(onSaveSuccess: () -> Unit) {
     var bellVolume by remember { mutableIntStateOf(prefs.getInt(MeditationManager.KEY_BELL_VOLUME, 80)) }
 
     val coroutineScope = rememberCoroutineScope()
+    DisposableEffect(Unit) {
+        onDispose {
+            MeditationManager.stopAudio(context)
+        }
+    }
 
     val isTimeValid = (tempH * 3600 + tempM * 60) > 0
 
