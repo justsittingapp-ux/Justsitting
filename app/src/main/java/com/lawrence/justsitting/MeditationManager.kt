@@ -23,8 +23,7 @@ object MeditationManager {
     private val audioMutex = Mutex()
     @Volatile
     private var activeAudioJob: Job? = null
-    @Volatile
-    private var activeMediaPlayer: MediaPlayer? = null
+    private val activeMediaPlayers = java.util.Collections.synchronizedList(mutableListOf<MediaPlayer>())
     @Volatile
     private var activeWakeLock: PowerManager.WakeLock? = null
     @Volatile
@@ -680,6 +679,8 @@ object MeditationManager {
         }
     }
 
+    fun isAudioActive(): Boolean = activeAudioJob?.isActive == true
+
     fun stopAudio(context: Context) {
         synchronized(this) {
             try {
@@ -689,13 +690,17 @@ object MeditationManager {
                 e.printStackTrace()
             }
             try {
-                activeMediaPlayer?.let {
-                    if (it.isPlaying) {
-                        it.stop()
+                synchronized(activeMediaPlayers) {
+                    for (mp in activeMediaPlayers) {
+                        try {
+                            if (mp.isPlaying) mp.stop()
+                            mp.release()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
-                    it.release()
+                    activeMediaPlayers.clear()
                 }
-                activeMediaPlayer = null
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -709,11 +714,16 @@ object MeditationManager {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            restoreSavedSystemAlarmVolume(context)
+            restoreSavedSystemAlarmVolume(context, force = true)
         }
     }
 
-    fun restoreSavedSystemAlarmVolume(context: Context) {
+    fun restoreSavedSystemAlarmVolume(context: Context, force: Boolean = false) {
+        if (!force && isAudioActive()) {
+            // Nu restaurăm volumul telefonului în timp ce gongurile sunt în plină redare (ex: când utilizatorul aprinde ecranul)
+            return
+        }
+
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -822,7 +832,7 @@ object MeditationManager {
                     try {
                         val mp = MediaPlayer.create(context, R.raw.bell, audioAttributes, 0)
                         if (mp != null) {
-                            activeMediaPlayer = mp
+                            activeMediaPlayers.add(mp)
                             val dur = mp.duration
                             if (dur > 0) {
                                 trackDurationMs = dur.toLong()
@@ -830,12 +840,12 @@ object MeditationManager {
                             mp.setVolume(fineVolume, fineVolume)
                             mp.setOnCompletionListener {
                                 it.release()
-                                activeMediaPlayer = null
+                                activeMediaPlayers.remove(it)
                                 completionSignal.complete(Unit)
                             }
                             mp.setOnErrorListener { it, _, _ ->
                                 it.release()
-                                activeMediaPlayer = null
+                                activeMediaPlayers.remove(it)
                                 completionSignal.complete(Unit)
                                 true
                             }
@@ -848,29 +858,34 @@ object MeditationManager {
                         completionSignal.complete(Unit)
                     }
 
-                    // Așteptăm terminarea redării cu TIMEOUT de siguranță, pentru a preveni blocarea (hang)
-                    // pe telefoane (cum ar fi Motorola) unde onCompletionListener poate să nu fie declanșat.
-                    withTimeoutOrNull(trackDurationMs + 1500L) {
-                        completionSignal.await()
-                    }
-
-                    activeMediaPlayer?.let {
-                        try {
-                            if (it.isPlaying) it.stop()
-                            it.release()
-                        } catch (e: Exception) { e.printStackTrace() }
-                        activeMediaPlayer = null
-                    }
-
-                    // Pauză între gonguri consecutive (ex. gonguri de final)
-                    if (index < times - 1 && coroutineContext.isActive) {
-                        delay(5000L)
+                    if (index < times - 1) {
+                        // Distanță firească și muzicală între gongurile de final (3.5 secunde).
+                        // Gongul anterior continuă să rezoneze armonios în fundal fără să fie tăiat brusc.
+                        delay(3500L)
+                    } else {
+                        // Pentru ultimul gong, așteptăm să își termine întreaga vibrație sonoră înainte de a restaura volumul
+                        withTimeoutOrNull(trackDurationMs + 1500L) {
+                            completionSignal.await()
+                        }
                     }
                 }
             } finally {
+                // Curățăm orice player rămas activ
+                synchronized(activeMediaPlayers) {
+                    for (mp in activeMediaPlayers) {
+                        try {
+                            if (mp.isPlaying) mp.stop()
+                            mp.release()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                    activeMediaPlayers.clear()
+                }
+
                 // Restaurăm volumul original al alarmei dacă a fost modificat temporar
                 if (changedSystemVolume) {
-                    restoreSavedSystemAlarmVolume(context)
+                    restoreSavedSystemAlarmVolume(context, force = true)
                 }
                 try {
                     if (wakeLock.isHeld) {
